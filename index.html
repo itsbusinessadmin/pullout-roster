@@ -515,13 +515,16 @@ function plan(tk,d){
       break;
     }
   });
+  // Pull-outs each agent already had on earlier days: those who already joined go last
+  const prev={};{const i=DAY_ORDER.indexOf(d);DAY_ORDER.slice(0,Math.max(0,i)).forEach(pd=>attendedOn(tk,pd).forEach(n=>prev[n]=(prev[n]||0)+1));}
+  const pv=n=>prev[n]||0;
   // 4. Fill remaining gaps with a free agent from the same team
   const count={};A.forEach(a=>count[a]=0);
   sessions.forEach(s=>s.forEach(x=>{if(x.name)count[x.name]++;}));
   for(let si=0;si<3;si++)for(const slot of sessions[si]){
     if(slot.name||slot.short)continue;
     const taken=new Set(sessions[si].map(x=>x.name).filter(Boolean));
-    const c=A.filter(n=>own(n)===slot.g&&!taken.has(n)&&!offIn(n,si)).sort(rank(count));
+    const c=A.filter(n=>own(n)===slot.g&&!taken.has(n)&&!offIn(n,si)).sort((a,b)=>pv(a)-pv(b)||rank(count)(a,b));
     if(c.length){slot.name=c[0];count[c[0]]++;slot.isRep=true;}
   }
   // 5. Priority: agents who missed an earlier day (off, on leave, removed, or no room) go first on the next day they can attend.
@@ -536,12 +539,23 @@ function plan(tk,d){
         if(offIn(X,si))continue;
         sessions[si].forEach((y,m)=>{
           if(y.g!==g)return;
-          const score=!y.name?1e9:(carry.has(y.name)||y.priority||y.movedFrom)?-1:(tot(g)[y.name]||0);
+          const score=!y.name?1e9:(carry.has(y.name)||y.priority||y.movedFrom)?-1:pv(y.name)*1000+(tot(g)[y.name]||0);
           if(score>=0&&(!best||score>best.score))best={si,m,score};
         });
       }
       if(best){const y=sessions[best.si][best.m];sessions[best.si][best.m]={name:X,g,priority:true};
         if(y.name){count[y.name]--;}count[X]=(count[X]||0)+1;}
+    });
+  }
+  // 6. If someone who hasn't joined on any earlier day is left out today, they take the spot of an agent who already joined before
+  if(DAY_ORDER.indexOf(d)>0){
+    const inToday=()=>new Set(sessions.flat().map(x=>x.name).filter(Boolean));
+    A.filter(n=>!out.has(n)&&pv(n)===0&&!inToday().has(n)).sort((a,b)=>A.indexOf(a)-A.indexOf(b)).forEach(X=>{
+      if(inToday().has(X))return;let best=null;
+      for(let si=0;si<3;si++){if(offIn(X,si))continue;
+        sessions[si].forEach((y,m)=>{if(y.g!==own(X)||!y.name||y.priority||y.movedFrom||pv(y.name)===0)return;
+          const sc=pv(y.name)*1000+(count[y.name]||0);if(!best||sc>best.sc)best={si,m,sc};});}
+      if(best){const y=sessions[best.si][best.m];count[y.name]--;sessions[best.si][best.m]={name:X,g:own(X),priority:true};count[X]=(count[X]||0)+1;}
     });
   }
   sessions.forEach(s=>s.sort((a,b)=>(a.g===b.g?0:a.g==="pp"?-1:1)));
