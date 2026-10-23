@@ -473,6 +473,18 @@ function fitEveryone(){
   }
   saveCap();
 }
+// Agents who missed a day (and haven't attended since) are carried into the next day
+const DAY_ORDER=["tue","wed","thu"];
+function attendedOn(tk,d){return new Set(plan(tk,d).sessions.flat().map(x=>x.name).filter(Boolean));}
+function carriedInto(tk,d){
+  const i=DAY_ORDER.indexOf(d);if(i<=0)return new Set();
+  const prev=DAY_ORDER[i-1],went=attendedOn(tk,prev),before=carriedInto(tk,prev);
+  const pool=TEAMS[tk].agents?TEAMS[tk].agents:[...new Set(DAY_ORDER.flatMap(x=>TEAMS[tk].agentsFor(x)))];
+  const miss=new Set();
+  pool.forEach(n=>{const B=buildLineup(own(n));if(!(B.opts[n]>0))return; if(!went.has(n))miss.add(n);});
+  before.forEach(n=>{if(!went.has(n))miss.add(n);});
+  return miss;
+}
 function plan(tk,d){
   const T=TEAMS[tk],S=st[tk],out=new Set(S.off[d]),A=T.agentsFor(d);
   const offIn=(n,i)=>out.has(n)||S.offS[d][i].includes(n)||!!T.busy(d,n,i);
@@ -511,6 +523,26 @@ function plan(tk,d){
     const taken=new Set(sessions[si].map(x=>x.name).filter(Boolean));
     const c=A.filter(n=>own(n)===slot.g&&!taken.has(n)&&!offIn(n,si)).sort(rank(count));
     if(c.length){slot.name=c[0];count[c[0]]++;slot.isRep=true;}
+  }
+  // 5. Priority: agents who missed an earlier day (off, on leave, removed, or no room) go first on the next day they can attend.
+  //    They take the spot of a same-department agent who did attend the earlier days, starting with whoever has the most pull-outs.
+  const carry=carriedInto(tk,d);
+  if(carry.size){
+    const tot=g=>buildLineup(g).tot;
+    [...carry].sort((a,b)=>(tot(own(a))[a]||0)-(tot(own(b))[b]||0)).forEach(X=>{
+      if(out.has(X)||sessions.some(s=>s.some(y=>y.name===X)))return;
+      const g=own(X);let best=null;
+      for(let si=0;si<3;si++){
+        if(offIn(X,si))continue;
+        sessions[si].forEach((y,m)=>{
+          if(y.g!==g)return;
+          const score=!y.name?1e9:(carry.has(y.name)||y.priority||y.movedFrom)?-1:(tot(g)[y.name]||0);
+          if(score>=0&&(!best||score>best.score))best={si,m,score};
+        });
+      }
+      if(best){const y=sessions[best.si][best.m];sessions[best.si][best.m]={name:X,g,priority:true};
+        if(y.name){count[y.name]--;}count[X]=(count[X]||0)+1;}
+    });
   }
   sessions.forEach(s=>s.sort((a,b)=>(a.g===b.g?0:a.g==="pp"?-1:1)));
   return {sessions,count};
@@ -556,6 +588,7 @@ function render(){
         const notes=[];
         if(x.isRep)notes.push(`<span class="note">Filled in</span>`);
         if(x.movedFrom)notes.push(`<span class="note">Moved</span>`);
+        if(x.priority)notes.push(`<span class="note warn" title="Missed an earlier day, so they go first today">Priority</span>`);
         if(count[x.name]>1)notes.push(`<span class="note">2nd today</span>`);
         if(!T.known(day,x.name))notes.push(`<span class="note warn" title="Break and lunch times not on file">Check breaks</span>`);
         return `<div class="row"><span class="nm">${esc(x.name)}${notes.join("")}</span><button class="x" data-off-session="${si}" data-name="${esc(x.name)}" aria-label="Remove ${esc(x.name)} from this session" title="Remove from this session">×</button>${details?`<div class="meta">${T.meta(day,x.name)}</div>`:""}</div>`}).join("")}</div>`;};
