@@ -208,6 +208,7 @@ details.miss .miss-body{margin-top:6px}
   </section>
 </div>
 <div class="toast" id="toast" hidden></div></template>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script type="application/json" id="shared-state">null</script>
 <script id="app-js">
 (function(){const t=document.getElementById("app-tpl");t.parentNode.insertBefore(t.content.cloneNode(true),t);})();
@@ -392,7 +393,7 @@ function blank(){const s={};for(const [k,t] of Object.entries(TEAMS)){if(!t.days
 let st=blank(),team="all",day="tue",dept="pp";
 try{const v=JSON.parse(localStorage.getItem(KEY)||"null");if(v&&v.all)st=v;}catch(e){}
 try{const v=JSON.parse(localStorage.getItem(KEY+"-view")||"null");if(v&&DAYS[v.day])day=v.day;}catch(e){}
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(st));localStorage.setItem(KEY+"-view",JSON.stringify({team,day}));}catch(e){}queueShare();saveMine();};
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(st));localStorage.setItem(KEY+"-view",JSON.stringify({team,day}));}catch(e){}queueShare();saveMine();cloudQueue();};
 
 const GROUPS={pp:"Puritan's Pride",iv:"GOL"};
 let cap={pp:4,iv:2};
@@ -403,7 +404,7 @@ let capS=mkCapS();
 let savedCapS=false;
 try{const v=JSON.parse(localStorage.getItem(KEY+"-capS2")||"null");if(v&&v.tue&&v.wed&&v.thu){capS=v;savedCapS=true;}}catch(e){}
 const capOf=(d,si,g)=>capS[d][si][g];
-const saveCap=()=>{try{localStorage.setItem(KEY+"-cap",JSON.stringify(cap));localStorage.setItem(KEY+"-capS2",JSON.stringify(capS));}catch(e){}queueShare();saveMine();};
+const saveCap=()=>{try{localStorage.setItem(KEY+"-cap",JSON.stringify(cap));localStorage.setItem(KEY+"-capS2",JSON.stringify(capS));}catch(e){}queueShare();saveMine();cloudQueue();};
 // Shared lineup saved inside the page itself: it wins over this browser's copy
 const SHARED=(()=>{try{return JSON.parse(document.getElementById("shared-state").textContent);}catch(e){return null;}})();
 if(SHARED&&SHARED.st&&SHARED.st.all&&SHARED.capS){st=SHARED.st;capS=SHARED.capS;if(SHARED.cap)cap=SHARED.cap;savedCapS=true;}
@@ -707,6 +708,51 @@ async function publishShared(){
   showMode();render();
 })();
 try{const ui=JSON.parse(sessionStorage.getItem(KEY+"-ui")||"null");if(ui){sessionStorage.removeItem(KEY+"-ui");if(DAYS[ui.day])day=ui.day;if(ui.dept)dept=ui.dept;if(typeof ui.details==="boolean")details=ui.details;}}catch(e){}
+
+/* ---------- cloud sync (Supabase): everyone with the link shares one lineup ---------- */
+var CLOUD=null,CLOUD_READY=false,cloudTimer=null,cloudSaved=null;
+const CLIENT=Math.random().toString(36).slice(2);
+const SB_URL="https://dfjwbzrtimsblttfxgcr.supabase.co",SB_KEY="sb_publishable_UO9liPtNMJ8uJPmybreG_A_hjWWE3QZ";
+function cloudStatus(cls,txt){setSync(cls,txt);}
+function applyRemote(data){
+  if(!data||!data.st||!data.st.all||!data.capS)return;
+  st=data.st;capS=data.capS;if(data.cap)cap=data.cap;
+  cloudSaved=data.savedAt?new Date(data.savedAt):null;
+  try{localStorage.setItem(KEY,JSON.stringify(st));localStorage.setItem(KEY+"-capS2",JSON.stringify(capS));localStorage.setItem(KEY+"-cap",JSON.stringify(cap));}catch(e){}
+  render();cloudStatus("ok",cloudSaved?`Synced · saved ${fmtTime(cloudSaved)}`:"Synced");
+}
+function cloudQueue(){
+  if(!CLOUD||!CLOUD_READY)return;
+  clearTimeout(cloudTimer);cloudStatus("busy","Saving…");
+  cloudTimer=setTimeout(cloudPush,700);
+}
+async function cloudPush(){
+  cloudTimer=null;
+  const data={st,capS,cap,savedAt:new Date().toISOString(),by:CLIENT};
+  const {error}=await CLOUD.from("pullout_roster").upsert({id:"main",data,updated_at:data.savedAt});
+  if(error){cloudStatus("err","Couldn't save online. Changes are kept on this device.");return;}
+  cloudSaved=new Date(data.savedAt);cloudStatus("ok",`Synced · saved ${fmtTime(cloudSaved)}`);
+}
+async function cloudPull(){
+  const {data,error}=await CLOUD.from("pullout_roster").select("data").eq("id","main").maybeSingle();
+  if(error)throw error;
+  if(data&&data.data)applyRemote(data.data);else cloudStatus("ok","Synced");
+}
+(async()=>{
+  if(!window.supabase||!window.supabase.createClient){cloudStatus("err","Offline · changes saved on this device only");return;}
+  try{
+    CLOUD=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:false}});
+    cloudStatus("busy","Connecting…");
+    await cloudPull();CLOUD_READY=true;
+    CLOUD.channel("roster").on("postgres_changes",{event:"*",schema:"public",table:"pullout_roster"},p=>{
+      const d=p.new&&p.new.data;if(!d||d.by===CLIENT)return;
+      if(cloudTimer){clearTimeout(cloudTimer);cloudTimer=null;}
+      applyRemote(d);toast("Lineup updated by a colleague");
+    }).subscribe();
+    // backup refresh in case the live connection drops
+    setInterval(()=>{if(!cloudTimer)cloudPull().catch(()=>{});},30000);
+  }catch(e){CLOUD=null;cloudStatus("err","Offline · changes saved on this device only");}
+})();
 showMode();
 render();
 </script>
