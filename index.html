@@ -500,10 +500,10 @@ function buildLineup(g){
     for(const n of order)tryAssign(n,new Set());
     owner.forEach((n,x)=>{if(n){L[d][slots[x]].push(n);tot[n]++;dayCnt[n][d]++;}});
   }
-  // Phase 2: any spots still open go to free agents with the fewest pull-outs (a second session that day)
+  // Phase 2: any spots still open go to free agents not yet in a session that day (never a second session the same day)
   for(const d of days)for(const si of [0,1,2]){
     while(L[d][si].length<capOf(d,si,g)){
-      const c=cands(d,si).sort(better(d));
+      const c=cands(d,si).filter(n=>dayCnt[n][d]===0).sort(better(d));
       if(!c.length){short[d+si]=capOf(d,si,g)-L[d][si].length;break;}
       const n=c[0];L[d][si].push(n);tot[n]++;dayCnt[n][d]++;
     }
@@ -603,7 +603,7 @@ function plan(tk,d){
   for(let si=0;si<3;si++)for(const slot of sessions[si]){
     if(slot.name||slot.short)continue;
     const taken=new Set(sessions[si].map(x=>x.name).filter(Boolean));
-    const c=A.filter(n=>own(n)===slot.g&&!taken.has(n)&&!offIn(n,si)).sort((a,b)=>(displaced.has(b)-displaced.has(a))||(count[a]>0)-(count[b]>0)||pv(a)-pv(b)||rank(count)(a,b));
+    const c=A.filter(n=>own(n)===slot.g&&!taken.has(n)&&!offIn(n,si)&&!count[n]).sort((a,b)=>(displaced.has(b)-displaced.has(a))||(count[a]>0)-(count[b]>0)||pv(a)-pv(b)||rank(count)(a,b));
     if(c.length){slot.name=c[0];count[c[0]]++;slot.isRep=true;}
   }
   // 5. Priority: agents who missed an earlier day (off, on leave, removed, or no room) go first on the next day they can attend.
@@ -637,6 +637,35 @@ function plan(tk,d){
       if(best){const y=sessions[best.si][best.m];count[y.name]--;sessions[best.si][best.m]={name:X,g:own(X),priority:true};count[X]=(count[X]||0)+1;}
     });
   }
+  // 7. Open spot that nobody left out can take: move an already-placed agent into it, and give their old spot to someone left out
+  for(let guard=0;guard<50;guard++){
+    let changed=false;
+    const inToday=new Set(sessions.flat().map(x=>x.name).filter(Boolean));
+    const left=A.filter(n=>!out.has(n)&&!inToday.has(n));
+    outer7: for(let j=0;j<3;j++)for(let k=0;k<sessions[j].length;k++){
+      const slot=sessions[j][k];if(slot.name)continue;
+      for(const X of left){if(own(X)!==slot.g)continue;
+        for(let i=0;i<3;i++){if(i===j||offIn(X,i))continue;
+          const m=sessions[i].findIndex(y=>y.name&&y.g===slot.g&&!offIn(y.name,j));
+          if(m<0)continue;
+          const Y=sessions[i][m].name;
+          sessions[j][k]={name:Y,g:slot.g,movedFrom:i+1};sessions[i][m]={name:X,g:slot.g,isRep:true};count[X]=(count[X]||0)+1;
+          changed=true;break outer7;}}
+    }
+    if(!changed)break;
+  }
+  // 8. Last chance: someone left out today who can't attend any later day takes the spot of an agent who can still join another day
+  {const later=DAY_ORDER.slice(DAY_ORDER.indexOf(d)+1);
+   const hasLater=n=>later.some(ld=>TEAMS.all.agentsFor(ld).includes(n)&&!(S.off[ld]||[]).includes(n)&&[0,1,2].some(si=>!T.busy(ld,n,si)));
+   const inToday=()=>new Set(sessions.flat().map(x=>x.name).filter(Boolean));
+   A.filter(n=>!out.has(n)&&!inToday().has(n)&&pv(n)===0&&!hasLater(n)).forEach(X=>{
+     if(inToday().has(X))return;let best=null;
+     for(let si=0;si<3;si++){if(offIn(X,si))continue;
+       sessions[si].forEach((y,m)=>{if(y.g!==own(X)||!y.name||y.priority)return;
+         const ok=pv(y.name)>0||hasLater(y.name);if(!ok)return;
+         const sc=pv(y.name)*10+(hasLater(y.name)?1:0);if(!best||sc>best.sc)best={si,m,sc};});}
+     if(best){const y=sessions[best.si][best.m];count[y.name]--;sessions[best.si][best.m]={name:X,g:own(X),priority:true};count[X]=(count[X]||0)+1;}
+   });}
   sessions.forEach(s=>s.sort((a,b)=>DEPTS.indexOf(a.g)-DEPTS.indexOf(b.g)));
   return {sessions,count};
 }
