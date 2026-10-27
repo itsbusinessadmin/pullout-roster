@@ -403,12 +403,46 @@ const TEAMS = {
   }
 };
 
-/* ---------- combined pool: both teams in one lineup ---------- */
-const own=n=>IV_SCHED.tue[n]?"iv":"pp";
+/* ---------- Phusion: Tuesday Oct 27 roster, PH time [shift, break1, lunch, break2]. Off Phone (chat/email/web) time counts as free. ---------- */
+const PH_SCHED={tue:{
+  "Ernieve Tamayo":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
+  "Erica Bartolome":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
+  "Alexandra Mae Certeza":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
+  "Jessica Abundo":["9PM-6AM","11:00 PM","1:30 AM","4:30 AM"],
+  "Mariesh Liwanag":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
+  "Arvie Tamayo":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
+  "Seid Alen Dela Cruz":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
+  "Frelyn Sarviya Marco":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
+  "Cherry Grace Gatillo":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
+  "Ma. Erica Mae Dela Cruz":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"],
+  "Lanie Mae Baylon":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"],
+  "Jimmar San Pedro":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"],
+  "Roxsan Cristobal":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"],
+  "Jerard Mavrick Vergara":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"],
+  "Wally Boy Plata":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"],
+  "Jenilyn Baugbog":["9PM-6AM","11:00 PM","1:30 AM","4:30 AM"],
+  "Ariel Faustino":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"],
+  "Joseph Joaquin Bernardo":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"],
+  "Zaileen Reyes":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"],
+  "Aljon Pertiz":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
+  "Maricel Bondoc":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"]}};
+TEAMS.ph={
+  name:"Phusion", agents:Object.keys(PH_SCHED.tue), sme:new Set(), base:{},
+  known:()=>true, leave:()=>null,
+  chip:(d,n)=>({label:PH_SCHED[d][n][0],color:"--surface-2"}),
+  busy(d,n,si){const r=PH_SCHED[d]&&PH_SCHED[d][n];if(!r)return "off";const [shift,b1,l,b2]=r;
+    const s=rel(sess(d,si).phStart),e=s+60,[ss,se]=shiftRange(shift);if(s<ss||e>se)return "off shift";
+    if(overlap(s,e,rel(b1),rel(b1)+15))return "break 1";if(overlap(s,e,rel(l),rel(l)+60))return "lunch";if(overlap(s,e,rel(b2),rel(b2)+15))return "break 2";return null;},
+  meta(d,n){const [sh,b1,l,b2]=PH_SCHED[d][n];return [["Break 1",b1],["Lunch",l],["Break 2",b2]].map(([k,v])=>`<div><span class="k">${k}:</span> ${v}</div>`).join("");}
+};
+TEAMS.ph.agentsFor=d=>PH_SCHED[d]?Object.keys(PH_SCHED[d]):[];
+const DEPTS=["pp","iv","ph"];
+/* ---------- combined pool: all departments in one lineup ---------- */
+const own=n=>IV_SCHED.tue[n]?"iv":PH_SCHED.tue[n]?"ph":"pp";
 TEAMS.pp.agentsFor=()=>TEAMS.pp.agents; TEAMS.iv.agentsFor=d=>IV_SCHED[d]?Object.keys(IV_SCHED[d]):[];
 TEAMS.all={
   name:"All agents", days:["tue","wed","thu"],
-  agentsFor:d=>[...TEAMS.pp.agentsFor(d),...TEAMS.iv.agentsFor(d)],
+  agentsFor:d=>[...TEAMS.pp.agentsFor(d),...TEAMS.iv.agentsFor(d),...TEAMS.ph.agentsFor(d)],
   sme:TEAMS.pp.sme,
   base:Object.fromEntries(["tue","wed","thu"].map(d=>[d,TEAMS.pp.base[d].map((l,si)=>[...l,...((TEAMS.iv.base[d]||[])[si]||[])])])),
   known:(d,n)=>TEAMS[own(n)].known(d,n), leave:(d,n)=>TEAMS[own(n)].leave(d,n), chip:(d,n)=>TEAMS[own(n)].chip(d,n),
@@ -424,7 +458,7 @@ try{const v=JSON.parse(localStorage.getItem(KEY)||"null");if(v&&v.all)st=v;}catc
 try{const v=JSON.parse(localStorage.getItem(KEY+"-view")||"null");if(v&&DAYS[v.day])day=v.day;}catch(e){}
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(st));localStorage.setItem(KEY+"-view",JSON.stringify({team,day}));}catch(e){}queueShare();saveMine();cloudQueue();};
 
-const GROUPS={pp:"Puritan's Pride",iv:"GOL"};
+const GROUPS={pp:"Puritan's Pride",iv:"GOL",ph:"Phusion"};
 let cap={pp:4,iv:2};
 try{const v=JSON.parse(localStorage.getItem(KEY+"-cap")||"null");if(v&&Number.isInteger(v.pp)&&Number.isInteger(v.iv))cap=v;}catch(e){}
 // Per-session limits: capS[day][session] = {pp, iv}; the toolbar sets every session at once
@@ -432,7 +466,9 @@ const mkCapS=()=>Object.fromEntries(["tue","wed","thu"].map(d=>[d,[0,1,2].map(()
 let capS=mkCapS();
 let savedCapS=false;
 try{const v=JSON.parse(localStorage.getItem(KEY+"-capS2")||"null");if(v&&v.tue&&v.wed&&v.thu){capS=v;savedCapS=true;}}catch(e){}
-const capOf=(d,si,g)=>capS[d][si][g];
+// Phusion default: everyone who is free that session (until someone sets a number)
+const autoCap=(d,si,g)=>TEAMS[g].agentsFor(d).filter(n=>!TEAMS[g].busy(d,n,si)&&!(st.all&&st.all.off[d]||[]).includes(n)).length;
+const capOf=(d,si,g)=>{const v=capS[d][si][g];return Number.isInteger(v)?v:(g==="ph"?autoCap(d,si,g):0);};
 const saveCap=()=>{try{localStorage.setItem(KEY+"-cap",JSON.stringify(cap));localStorage.setItem(KEY+"-capS2",JSON.stringify(capS));}catch(e){}queueShare();saveMine();cloudQueue();};
 // Shared lineup saved inside the page itself: it wins over this browser's copy
 const SHARED=(()=>{try{return JSON.parse(document.getElementById("shared-state").textContent);}catch(e){return null;}})();
@@ -441,7 +477,7 @@ if(SHARED&&SHARED.st&&SHARED.st.all&&SHARED.capS){st=SHARED.st;capS=SHARED.capS;
 // Balanced default lineup across all three days: every agent who can attend gets in, and counts differ by at most one where schedules allow
 const LINEUP_MEMO={};
 function buildLineup(g){
-  const key=(LEGACY?"legacy:":JSON.stringify(st.all.times||{}))+g+":"+JSON.stringify(["tue","wed","thu"].map(d=>capS[d].map(c=>c[g])));if(LINEUP_MEMO[key])return LINEUP_MEMO[key];
+  const key=(LEGACY?"legacy:":JSON.stringify(st.all.times||{}))+g+":"+JSON.stringify(["tue","wed","thu"].map(d=>[0,1,2].map(si=>capOf(d,si,g))));if(LINEUP_MEMO[key])return LINEUP_MEMO[key];
   const T=TEAMS.all,days=["tue","wed","thu"],L={},tot={},dayCnt={},opts={};
   const pool=[...new Set(days.flatMap(d=>T.agentsFor(d).filter(n=>own(n)===g)))];
   const elig=(n,d,si)=>T.agentsFor(d).includes(n)&&!T.busy(d,n,si);
@@ -492,7 +528,7 @@ function missingOn(d){const T=TEAMS.all,S=st.all,out=new Set(S.off[d]);
 // Set each session's numbers so every agent who can attend gets one pull-out each day, spread as evenly as possible
 function fitEveryone(){
   const T=TEAMS.all;
-  for(const d of ["tue","wed","thu"])for(const g of ["pp","iv"]){
+  for(const d of ["tue","wed","thu"])for(const g of DEPTS){
     const out=new Set(st.all.off[d]);
     const ag=T.agentsFor(d).filter(n=>own(n)===g&&!out.has(n));
     const free=n=>[0,1,2].filter(si=>!T.busy(d,n,si));
@@ -520,9 +556,9 @@ function plan(tk,d){
   const rank=(cnt)=>(a,b)=>cnt[a]-cnt[b]||(T.known(d,b)-T.known(d,a))||A.indexOf(a)-A.indexOf(b);
   // 1. Default lineup: the balanced three-day lineup
   const sessions=[[],[],[]],used={};A.forEach(a=>used[a]=0);
-  for(const g of ["pp","iv"]){
+  for(const g of DEPTS){
     let B=buildLineup(g),Ld=B.L[d];
-    if(GROUP_MOVE[d]){LEGACY=true;let old;try{old=buildLineup(g).L[d];}finally{LEGACY=false;}
+    if(GROUP_MOVE[d]&&g!=="ph"){LEGACY=true;let old;try{old=buildLineup(g).L[d];}finally{LEGACY=false;}
       // keep each moved agent unless they'd be on break, lunch etc. at the new time; those spots are refilled below
       Ld=GROUP_MOVE[d].map(from=>old[from]);
       for(let si=0;si<3;si++){const keep=Ld[si].filter(n=>!T.busy(d,n,si));
@@ -598,7 +634,7 @@ function plan(tk,d){
       if(best){const y=sessions[best.si][best.m];count[y.name]--;sessions[best.si][best.m]={name:X,g:own(X),priority:true};count[X]=(count[X]||0)+1;}
     });
   }
-  sessions.forEach(s=>s.sort((a,b)=>(a.g===b.g?0:a.g==="pp"?-1:1)));
+  sessions.forEach(s=>s.sort((a,b)=>DEPTS.indexOf(a.g)-DEPTS.indexOf(b.g)));
   return {sessions,count};
 }
 
@@ -624,14 +660,14 @@ function render(){
   $("roster").innerHTML=all.map((n,i)=>[n,i]).filter(([n])=>own(n)===dept).map(([n,i])=>{
     const isOff=S.off[day].includes(n),lv=T.leave(day,n);
     if(lv)return `<li class="off"><span><span class="nm">${esc(n)}</span></span><span class="rd">Rest day</span></li>`;
-    return `<li class="${isOff?"off":""}"><label for="av-${i}"><span class="nm">${esc(n)}</span><span class="sh">${T.chip(day,n).label}${own(n)==="pp"?" PH":" ET"} · ${(()=>{const t=buildLineup(own(n)).tot[n]||0;return t?`${t} pull-out${t>1?"s":""} Oct 27–29`:"no session fits their breaks"})()}</span></label><input class="sw" type="checkbox" id="av-${i}" data-name="${esc(n)}" ${isOff?"":"checked"} ${MODE==="pending"?"disabled":""} aria-label="${esc(n)} working on ${D.label}"></li>`}).join("");
+    return `<li class="${isOff?"off":""}"><label for="av-${i}"><span class="nm">${esc(n)}</span><span class="sh">${T.chip(day,n).label}${own(n)==="iv"?" ET":" PH"} · ${(()=>{const t=buildLineup(own(n)).tot[n]||0;return t?`${t} pull-out${t>1?"s":""} Oct 27–29`:"no session fits their breaks"})()}</span></label><input class="sw" type="checkbox" id="av-${i}" data-name="${esc(n)}" ${isOff?"":"checked"} ${MODE==="pending"?"disabled":""} aria-label="${esc(n)} working on ${D.label}"></li>`}).join("");
   $("agentsCount").textContent=S.off[day].length||"";
 
   // Sessions
   const {sessions,count}=plan(team,day);
   const flat=sessions.flat(),open=flat.filter(s=>!s.name).length;
   const fair=g=>{const B=buildLineup(g),v=Object.entries(B.tot).filter(([n])=>B.opts[n]>0).map(([,t])=>t);if(!v.length)return "";const lo=Math.min(...v),hi=Math.max(...v);return `${GROUPS[g]} ${lo===hi?lo:lo+"–"+hi} each`;};
-  const fairTxt=`<span>Oct 27–29 pull-outs: ${[fair("pp"),fair("iv")].filter(Boolean).join(" · ")}</span>`;
+  const fairTxt=`<span>Oct 27–29 pull-outs: ${DEPTS.map(fair).filter(Boolean).join(" · ")}</span>`;
   const miss=missingOn(day);
   const missTxt=miss.length?`<details class="miss" id="missBox"${missOpen?" open":""}><summary><strong>Not joining on ${D.label} (${miss.length})</strong><span class="caret" aria-hidden="true"></span></summary><div class="miss-body">${miss.map(esc).join(", ")}. <button class="link inline" id="fitInline">Fit everyone</button></div></details>`:`<div class="miss ok">Everyone who can attend is in a session on ${D.label}.</div>`;
   $("status").innerHTML=missTxt+fairTxt+" · "+(open?`<span class="bad">${open} open spot${open>1?"s":""}</span> · no free agent from that department`:`<span class="ok">All ${flat.length} spots filled</span>`);
@@ -648,7 +684,7 @@ function render(){
         return `<div class="row"><span class="nm">${esc(x.name)}${notes.join("")}</span><button class="x" data-off-session="${si}" data-name="${esc(x.name)}" aria-label="Remove ${esc(x.name)} from this session" title="Remove from this session">×</button>${details?`<div class="meta">${T.meta(day,x.name)}</div>`:""}</div>`}).join("")}</div>`;};
     const rm=S.offS[day][si];
     return `<article class="card"><div class="card-h"><div><div class="t-row"><label class="t-edit" title="Change this session's time"><span class="t">${sess(day,si).et} ET</span><span class="caret-d" aria-hidden="true"></span><select class="t-sel" aria-label="Session ${si+1} time" data-time="${si}" ${MODE==="pending"?"disabled":""}>${(()=>{const cur=sess(day,si),cs=cur.start!=null?cur.start:startOf(cur);return TIME_OPTIONS.map(m=>`<option value="${m}"${m===cs?" selected":""}>${range12(m)} ET</option>`).join("");})()}</select></label><button class="cam" data-snap="${si}" aria-label="Copy a picture of this session's names" title="Copy names as a picture"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg></button></div></div>
-      <div class="mini" role="group" aria-label="Pull-outs for this session">${["pp","iv"].map(g=>`<span class="mini-s"><span class="mini-l">${g==="pp"?"PP":"GOL"}</span><button data-cap="${g}" data-si="${si}" data-dir="-1" aria-label="Fewer ${GROUPS[g]} in this session">−</button><output>${capOf(day,si,g)}</output><button data-cap="${g}" data-si="${si}" data-dir="1" aria-label="More ${GROUPS[g]} in this session">+</button></span>`).join("")}</div></div>${group("pp")}${group("iv")}
+      <div class="mini" role="group" aria-label="Pull-outs for this session">${DEPTS.filter(g=>g!=="ph"||TEAMS.ph.agentsFor(day).length).map(g=>`<span class="mini-s"><span class="mini-l">${{pp:"PP",iv:"GOL",ph:"PHU"}[g]}</span><button data-cap="${g}" data-si="${si}" data-dir="-1" aria-label="Fewer ${GROUPS[g]} in this session">−</button><output>${capOf(day,si,g)}</output><button data-cap="${g}" data-si="${si}" data-dir="1" aria-label="More ${GROUPS[g]} in this session">+</button></span>`).join("")}</div></div>${DEPTS.map(group).join("")}
       ${rm.length?`<div class="removed">${rm.map(n=>`<span><s>${esc(n)}</s> <button data-undo-session="${si}" data-name="${esc(n)}" aria-label="Put ${esc(n)} back in this session">Undo</button></span>`).join("")}</div>`:""}</article>`;}).join("");
 }
 
@@ -657,7 +693,7 @@ document.addEventListener("click",e=>{
   if(MODE==="pending"){if(e.target.closest("[data-cap],[data-off-session],[data-undo-session],#fitBtn,#fitInline,#resetDay,#resetAll"))return;}
   const dp=e.target.closest("[data-dept]");if(dp){dept=dp.dataset.dept;render();return;}
   const cb=e.target.closest("[data-cap]");if(cb){const g=cb.dataset.cap,max=TEAMS[g].agents.length,clamp=v=>Math.max(0,Math.min(max,v));
-    if(cb.dataset.si!==undefined){const c=capS[day][+cb.dataset.si];c[g]=clamp(c[g]+(+cb.dataset.dir));}
+    if(cb.dataset.si!==undefined){const si=+cb.dataset.si,c=capS[day][si];c[g]=clamp(capOf(day,si,g)+(+cb.dataset.dir));}
     else{cap[g]=clamp(cap[g]+(+cb.dataset.dir));["tue","wed","thu"].forEach(d=>capS[d].forEach(c=>c[g]=cap[g]));}
     saveCap();render();return;}
   const t=e.target.closest("[data-day]");if(t){day=t.dataset.day;save();render();return;}
@@ -668,7 +704,7 @@ document.addEventListener("click",e=>{
 // Camera: draw the session's names (only) to a picture and copy it
 function snapCanvas(si){
   const {sessions}=plan("all",day),s=sessions[si],D=DAYS[day];
-  const groups=[["pp",GROUPS.pp],["iv",GROUPS.iv]].map(([g,l])=>[l,s.filter(x=>x.g===g&&x.name).map(x=>x.name)]).filter(([,n])=>n.length);
+  const groups=DEPTS.map(g=>[g,GROUPS[g]]).map(([g,l])=>[l,s.filter(x=>x.g===g&&x.name).map(x=>x.name)]).filter(([,n])=>n.length);
   const W=560,P=28,lh=30,F="Archivo, system-ui, sans-serif";
   let H=P+26+22+14;groups.forEach(([,n])=>{H+=26+n.length*lh+12;});H+=P-12;
   const sc=2,c=document.createElement("canvas");c.width=W*sc;c.height=H*sc;const x=c.getContext("2d");x.scale(sc,sc);
@@ -723,7 +759,7 @@ modal.addEventListener("click",e=>{if(e.target.closest("[data-close]"))closeModa
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!modal.hidden)closeModal();});
 $("resetDay").onclick=()=>{st[team].off[day]=[];st[team].offS[day]=[[],[],[]];save();render();toast(`${DAYS[day].label} reset`);};
 $("resetAll").onclick=()=>{st[team]=blank()[team];save();render();toast("All days reset");};
-function scheduleText(){const T=TEAMS.all;return T.days.map(d=>{const {sessions}=plan("all",d);return `${DAYS[d].label}, ${DAYS[d].date}\n`+sessions.map((s,si)=>`${sess(d,si).et} ET (${sess(d,si).ph} PH)\n  Puritan's Pride: `+(s.filter(x=>x.g==="pp").map(x=>x.name||"OPEN").join(", ")||"none")+`\n  GOL: `+(s.filter(x=>x.g==="iv").map(x=>x.name||"OPEN").join(", ")||"none")).join("\n")}).join("\n\n");}
+function scheduleText(){const T=TEAMS.all;return T.days.map(d=>{const {sessions}=plan("all",d);return `${DAYS[d].label}, ${DAYS[d].date}\n`+sessions.map((s,si)=>`${sess(d,si).et} ET (${sess(d,si).ph} PH)\n  Puritan's Pride: `+(s.filter(x=>x.g==="pp").map(x=>x.name||"OPEN").join(", ")||"none")+`\n  GOL: `+(s.filter(x=>x.g==="iv").map(x=>x.name||"OPEN").join(", ")||"none")+(s.some(x=>x.g==="ph")?`\n  Phusion: `+s.filter(x=>x.g==="ph").map(x=>x.name||"OPEN").join(", "):"")).join("\n")}).join("\n\n");}
 $("copyBtn").onclick=async()=>{const txt=scheduleText();
   try{await navigator.clipboard.writeText(txt);toast("Schedule copied");}
   catch(err){const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast("Schedule copied");}catch(e2){toast("Copy blocked. Select the text manually.");}ta.remove();}};
