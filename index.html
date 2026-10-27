@@ -431,8 +431,8 @@ TEAMS.ph={
   known:()=>true, leave:()=>null,
   chip:(d,n)=>({label:PH_SCHED[d][n][0],color:"--surface-2"}),
   busy(d,n,si){const r=PH_SCHED[d]&&PH_SCHED[d][n];if(!r)return "off";const [shift,b1,l,b2]=r;
-    const s=rel(sess(d,si).phStart),e=s+60,[ss,se]=shiftRange(shift);if(s<ss||e>se)return "off shift";
-    if(overlap(s,e,rel(b1),rel(b1)+15))return "break 1";if(overlap(s,e,rel(l),rel(l)+60))return "lunch";if(overlap(s,e,rel(b2),rel(b2)+15))return "break 2";return null;},
+    // Phusion is free for every session (their team confirmed), so only the shift itself is checked
+    const s=rel(sess(d,si).phStart),e=s+60,[ss,se]=shiftRange(shift);if(s<ss||e>se)return "off shift";return null;},
   meta(d,n){const [sh,b1,l,b2]=PH_SCHED[d][n];return [["Break 1",b1],["Lunch",l],["Break 2",b2]].map(([k,v])=>`<div><span class="k">${k}:</span> ${v}</div>`).join("");}
 };
 TEAMS.ph.agentsFor=d=>PH_SCHED[d]?Object.keys(PH_SCHED[d]):[];
@@ -467,7 +467,8 @@ let capS=mkCapS();
 let savedCapS=false;
 try{const v=JSON.parse(localStorage.getItem(KEY+"-capS2")||"null");if(v&&v.tue&&v.wed&&v.thu){capS=v;savedCapS=true;}}catch(e){}
 // Phusion default: everyone who is free that session (until someone sets a number)
-const autoCap=(d,si,g)=>TEAMS[g].agentsFor(d).filter(n=>!TEAMS[g].busy(d,n,si)&&!(st.all&&st.all.off[d]||[]).includes(n)).length;
+// Phusion default: everyone working that day, split evenly across the three sessions
+const autoCap=(d,si,g)=>{const n=TEAMS[g].agentsFor(d).filter(x=>!(st.all&&st.all.off[d]||[]).includes(x)).length;return Math.floor(n/3)+(si<n%3?1:0);};
 const capOf=(d,si,g)=>{const v=capS[d][si][g];return Number.isInteger(v)?v:(g==="ph"?autoCap(d,si,g):0);};
 const saveCap=()=>{try{localStorage.setItem(KEY+"-cap",JSON.stringify(cap));localStorage.setItem(KEY+"-capS2",JSON.stringify(capS));}catch(e){}queueShare();saveMine();cloudQueue();};
 // Shared lineup saved inside the page itself: it wins over this browser's copy
