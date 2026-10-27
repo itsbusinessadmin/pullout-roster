@@ -403,7 +403,7 @@ const TEAMS = {
   }
 };
 
-/* ---------- Phusion: Tuesday Oct 27 roster, PH time [shift, break1, lunch, break2]. Off Phone (chat/email/web) time counts as free. ---------- */
+/* ---------- Phusion: Oct 27 roster (used for Oct 27–29), PH time [shift, break1, lunch, break2]. Off Phone (chat/email/web) time counts as free. ---------- */
 const PH_SCHED={tue:{
   "Ernieve Tamayo":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
   "Erica Bartolome":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
@@ -426,6 +426,8 @@ const PH_SCHED={tue:{
   "Zaileen Reyes":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"],
   "Aljon Pertiz":["9PM-6AM","10:45 PM","1:30 AM","4:30 AM"],
   "Maricel Bondoc":["9PM-6AM","11:00 PM","1:30 AM","4:45 AM"]}};
+// Wed Oct 28 and Thu Oct 29: same Phusion agents and shift as Tuesday (no separate sheet yet)
+PH_SCHED.wed=JSON.parse(JSON.stringify(PH_SCHED.tue));PH_SCHED.thu=JSON.parse(JSON.stringify(PH_SCHED.tue));
 TEAMS.ph={
   name:"Phusion", agents:Object.keys(PH_SCHED.tue), sme:new Set(), base:{},
   known:()=>true, leave:()=>null,
