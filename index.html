@@ -89,6 +89,13 @@ details.miss .miss-body{margin-top:6px}
 .card-h .ph,.card-h .mini-l{color:inherit;opacity:.75}
 .card-h .mini button{border-color:var(--head-line);color:var(--fg)}
 .t-row{display:flex;align-items:center;gap:6px}
+.t-edit{position:relative;display:inline-flex}
+.t-edit{align-items:center;gap:6px;border:1px dashed transparent;border-radius:7px;padding:1px 6px;margin-left:-7px;cursor:pointer}
+.t-edit:hover,.t-edit:focus-within{border-color:var(--head-line);background:var(--surface)}
+.t-edit:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+.caret-d{width:6px;height:6px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg) translateY(-2px)}
+.t-sel{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:16px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .cam{width:28px;height:28px;border:1px solid var(--head-line);background:var(--surface);color:var(--fg);border-radius:7px;cursor:pointer;display:inline-grid;place-items:center;padding:0}
 .cam:hover{border-color:var(--accent);color:var(--accent)}
 .snap-modal .dialog{width:min(520px,100%)}
@@ -231,7 +238,14 @@ const SESSIONS_BY_DAY = {tue:[
 // The Oct 27 groups move as a block: old 3–4 group → 2–3, old 4–5 group → 3–4, old 1–2 group → 4–5
 const GROUP_MOVE = {tue:[1,2,0]};
 var LEGACY=false; // true while working out the original (pre-move) Oct 27 lineup
-const sess=(d,si)=>(!LEGACY&&SESSIONS_BY_DAY[d]?SESSIONS_BY_DAY[d]:SESSIONS)[si];
+// Session times can be edited on the page: st.all.times[day][session] = start time in ET minutes after midnight
+const fmt12=m=>{m=((m%1440)+1440)%1440;let h=Math.floor(m/60),mm=m%60,ap=h>=12?"PM":"AM";h=h%12||12;return {t:`${h}:${String(mm).padStart(2,"0")}`,ap};};
+const range12=m=>{const a=fmt12(m),b=fmt12(m+60);return a.ap===b.ap?`${a.t}–${b.t} ${b.ap}`:`${a.t} ${a.ap}–${b.t} ${b.ap}`;};
+function sessFromStart(m){const ph=m+720,p=fmt12(ph);return {et:range12(m),ph:range12(ph),phStart:`${p.t} ${p.ap}`,ivl:(m-510)/30,start:m};}
+const TIME_OPTIONS=[];for(let m=510;m<=1020;m+=30)TIME_OPTIONS.push(m); // 8:30 AM to 5:00 PM ET starts
+const startOf=o=>{const m=o.et.match(/^(\d+):(\d+)/);let h=+m[1];const pm=/PM$/.test(o.et)&&!/AM–/.test(o.et);if(pm&&h<12)h+=12;return h*60+(+m[2]);};
+const sess=(d,si)=>{if(!LEGACY&&typeof st!=="undefined"&&st.all&&st.all.times&&st.all.times[d]&&st.all.times[d][si]!=null)return sessFromStart(st.all.times[d][si]);
+  return (!LEGACY&&SESSIONS_BY_DAY[d]?SESSIONS_BY_DAY[d]:SESSIONS)[si];};
 const DAYS = {tue:{label:"Tuesday",date:"Oct 27"},wed:{label:"Wednesday",date:"Oct 28"},thu:{label:"Thursday",date:"Oct 29"}};
 
 /* ---------- Puritan's Pride: shift + break times in PH time ---------- */
@@ -427,7 +441,7 @@ if(SHARED&&SHARED.st&&SHARED.st.all&&SHARED.capS){st=SHARED.st;capS=SHARED.capS;
 // Balanced default lineup across all three days: every agent who can attend gets in, and counts differ by at most one where schedules allow
 const LINEUP_MEMO={};
 function buildLineup(g){
-  const key=(LEGACY?"legacy:":"")+g+":"+JSON.stringify(["tue","wed","thu"].map(d=>capS[d].map(c=>c[g])));if(LINEUP_MEMO[key])return LINEUP_MEMO[key];
+  const key=(LEGACY?"legacy:":JSON.stringify(st.all.times||{}))+g+":"+JSON.stringify(["tue","wed","thu"].map(d=>capS[d].map(c=>c[g])));if(LINEUP_MEMO[key])return LINEUP_MEMO[key];
   const T=TEAMS.all,days=["tue","wed","thu"],L={},tot={},dayCnt={},opts={};
   const pool=[...new Set(days.flatMap(d=>T.agentsFor(d).filter(n=>own(n)===g)))];
   const elig=(n,d,si)=>T.agentsFor(d).includes(n)&&!T.busy(d,n,si);
@@ -633,7 +647,7 @@ function render(){
         if(!T.known(day,x.name))notes.push(`<span class="note warn" title="Break and lunch times not on file">Check breaks</span>`);
         return `<div class="row"><span class="nm">${esc(x.name)}${notes.join("")}</span><button class="x" data-off-session="${si}" data-name="${esc(x.name)}" aria-label="Remove ${esc(x.name)} from this session" title="Remove from this session">×</button>${details?`<div class="meta">${T.meta(day,x.name)}</div>`:""}</div>`}).join("")}</div>`;};
     const rm=S.offS[day][si];
-    return `<article class="card"><div class="card-h"><div><div class="t-row"><span class="t">${sess(day,si).et} ET</span><button class="cam" data-snap="${si}" aria-label="Copy a picture of this session's names" title="Copy names as a picture"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg></button></div></div>
+    return `<article class="card"><div class="card-h"><div><div class="t-row"><label class="t-edit" title="Change this session's time"><span class="t">${sess(day,si).et} ET</span><span class="caret-d" aria-hidden="true"></span><select class="t-sel" aria-label="Session ${si+1} time" data-time="${si}" ${MODE==="pending"?"disabled":""}>${(()=>{const cur=sess(day,si),cs=cur.start!=null?cur.start:startOf(cur);return TIME_OPTIONS.map(m=>`<option value="${m}"${m===cs?" selected":""}>${range12(m)} ET</option>`).join("");})()}</select></label><button class="cam" data-snap="${si}" aria-label="Copy a picture of this session's names" title="Copy names as a picture"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg></button></div></div>
       <div class="mini" role="group" aria-label="Pull-outs for this session">${["pp","iv"].map(g=>`<span class="mini-s"><span class="mini-l">${g==="pp"?"PP":"GOL"}</span><button data-cap="${g}" data-si="${si}" data-dir="-1" aria-label="Fewer ${GROUPS[g]} in this session">−</button><output>${capOf(day,si,g)}</output><button data-cap="${g}" data-si="${si}" data-dir="1" aria-label="More ${GROUPS[g]} in this session">+</button></span>`).join("")}</div></div>${group("pp")}${group("iv")}
       ${rm.length?`<div class="removed">${rm.map(n=>`<span><s>${esc(n)}</s> <button data-undo-session="${si}" data-name="${esc(n)}" aria-label="Put ${esc(n)} back in this session">Undo</button></span>`).join("")}</div>`:""}</article>`;}).join("");
 }
@@ -692,6 +706,9 @@ document.addEventListener("click",e=>{
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("fitModal").hidden)$("fitModal").hidden=true;});
 
 document.addEventListener("click",e=>{if(e.target.id==="fitInline")doFit();});
+document.addEventListener("change",e=>{const sel=e.target.closest("[data-time]");if(!sel)return;const si=+sel.dataset.time,m=+sel.value;
+  if(!st.all.times)st.all.times={};if(!st.all.times[day])st.all.times[day]=[null,null,null];st.all.times[day][si]=m;
+  save();render();toast(`Session ${si+1} on ${DAYS[day].label} moved to ${range12(m)} ET`);});
 $("showDetails").addEventListener("change",e=>{details=e.target.checked;try{localStorage.setItem(KEY+"-details",details?"1":"0");}catch(err){}render();});
 $("roster").addEventListener("change",e=>{const n=e.target.dataset.name;if(!n)return;const S=st[team];
   S.off[day]=e.target.checked?S.off[day].filter(x=>x!==n):[...S.off[day],n];
