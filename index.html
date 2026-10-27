@@ -223,6 +223,15 @@ const SESSIONS = [
   {et:"1:00–2:00 PM",ph:"1:00–2:00 AM",phStart:"1:00 AM",ivl:9},
   {et:"3:00–4:00 PM",ph:"3:00–4:00 AM",phStart:"3:00 AM",ivl:13},
   {et:"4:00–5:00 PM",ph:"4:00–5:00 AM",phStart:"4:00 AM",ivl:15}];
+// Oct 27 sessions were moved to 2–3, 3–4 and 4–5 PM ET (Paul, Oct 27)
+const SESSIONS_BY_DAY = {tue:[
+  {et:"2:00–3:00 PM",ph:"2:00–3:00 AM",phStart:"2:00 AM",ivl:11},
+  {et:"3:00–4:00 PM",ph:"3:00–4:00 AM",phStart:"3:00 AM",ivl:13},
+  {et:"4:00–5:00 PM",ph:"4:00–5:00 AM",phStart:"4:00 AM",ivl:15}]};
+// The Oct 27 groups move as a block: old 3–4 group → 2–3, old 4–5 group → 3–4, old 1–2 group → 4–5
+const GROUP_MOVE = {tue:[1,2,0]};
+var LEGACY=false; // true while working out the original (pre-move) Oct 27 lineup
+const sess=(d,si)=>(!LEGACY&&SESSIONS_BY_DAY[d]?SESSIONS_BY_DAY[d]:SESSIONS)[si];
 const DAYS = {tue:{label:"Tuesday",date:"Oct 27"},wed:{label:"Wednesday",date:"Oct 28"},thu:{label:"Thursday",date:"Oct 29"}};
 
 /* ---------- Puritan's Pride: shift + break times in PH time ---------- */
@@ -351,7 +360,7 @@ const TEAMS = {
     leave:(d,n)=>["VL","RD"].includes(PP_SCHED[d][n][0])?PP_SCHED[d][n][0]:null,
     chip:(d,n)=>{const s=PP_SCHED[d][n][0];return {label:s,color:PP_COLORS[s]||"--surface-2"};},
     busy(d,n,si){const [shift,b1,l,b2]=PP_SCHED[d][n];if(shift==="VL"||shift==="RD")return shift;
-      const s=rel(SESSIONS[si].phStart),e=s+60,[ss,se]=shiftRange(shift);if(s<ss||e>se)return "off shift";
+      const s=rel(sess(d,si).phStart),e=s+60,[ss,se]=shiftRange(shift);if(s<ss||e>se)return "off shift";
       if(b1===null)return null;
       if(overlap(s,e,rel(b1),rel(b1)+15))return "break 1";if(overlap(s,e,rel(l),rel(l)+60))return "lunch";if(overlap(s,e,rel(b2),rel(b2)+15))return "break 2";
       const em=PP_SCHED[d][n][4];if(em){const [es,ee]=shiftRange(em);if(overlap(s,e,es,ee))return "email/socmed";}return null;},
@@ -368,7 +377,7 @@ const TEAMS = {
           thu:[["Mary Antonette Perez","Marianne Cabusao"],["Laarni Imperial","Annalisa Baarde"],["Irene Jenina Ecat","Ogie Boy Gaboco"]]},
     known:()=>true, leave:()=>null,
     chip:(d,n)=>{const r=IV_SCHED[d][n];const f=r.findIndex(v=>v),l=r.length-1-[...r].reverse().findIndex(v=>v);return {label:`${IVL[f]}–${ivEnd(l)}`,color:"--accent-soft"};},
-    busy(d,n,si){const r=IV_SCHED[d][n],i=SESSIONS[si].ivl;for(const v of [r[i],r[i+1]]){if(v===_)return "off shift";if(v===L)return "lunch";if(v===C)return "coaching";if(v.startsWith("Break"))return "break";if(v!==P&&v!==E)return v.toLowerCase();}return null;},
+    busy(d,n,si){const r=IV_SCHED[d][n],i=sess(d,si).ivl;for(const v of [r[i],r[i+1]]){if(v===_)return "off shift";if(v===L)return "lunch";if(v===C)return "coaching";if(v.startsWith("Break"))return "break";if(v!==P&&v!==E)return v.toLowerCase();}return null;},
     meta(d,n){const r=IV_SCHED[d][n];
       const to12=t=>{let [h,m]=t.split(":").map(Number);const ap=h>=12?"PM":"AM";h=h%12||12;return `${h}:${String(m).padStart(2,"0")} ${ap}`;};
       const starts=pred=>ivSpan(r,pred).map(x=>to12(x.split("–")[0]));
@@ -418,7 +427,7 @@ if(SHARED&&SHARED.st&&SHARED.st.all&&SHARED.capS){st=SHARED.st;capS=SHARED.capS;
 // Balanced default lineup across all three days: every agent who can attend gets in, and counts differ by at most one where schedules allow
 const LINEUP_MEMO={};
 function buildLineup(g){
-  const key=g+":"+JSON.stringify(["tue","wed","thu"].map(d=>capS[d].map(c=>c[g])));if(LINEUP_MEMO[key])return LINEUP_MEMO[key];
+  const key=(LEGACY?"legacy:":"")+g+":"+JSON.stringify(["tue","wed","thu"].map(d=>capS[d].map(c=>c[g])));if(LINEUP_MEMO[key])return LINEUP_MEMO[key];
   const T=TEAMS.all,days=["tue","wed","thu"],L={},tot={},dayCnt={},opts={};
   const pool=[...new Set(days.flatMap(d=>T.agentsFor(d).filter(n=>own(n)===g)))];
   const elig=(n,d,si)=>T.agentsFor(d).includes(n)&&!T.busy(d,n,si);
@@ -498,9 +507,19 @@ function plan(tk,d){
   // 1. Default lineup: the balanced three-day lineup
   const sessions=[[],[],[]],used={};A.forEach(a=>used[a]=0);
   for(const g of ["pp","iv"]){
-    const B=buildLineup(g);
-    for(let si=0;si<3;si++){B.L[d][si].forEach(n=>{sessions[si].push({name:n,g});used[n]++;});
-      for(let k=B.L[d][si].length;k<capOf(d,si,g);k++)sessions[si].push({name:null,g,short:true});}
+    let B=buildLineup(g),Ld=B.L[d];
+    if(GROUP_MOVE[d]){LEGACY=true;let old;try{old=buildLineup(g).L[d];}finally{LEGACY=false;}
+      // keep each moved agent unless they'd be on break, lunch etc. at the new time; those spots are refilled below
+      Ld=GROUP_MOVE[d].map(from=>old[from]);
+      for(let si=0;si<3;si++){const keep=Ld[si].filter(n=>!T.busy(d,n,si));
+        keep.forEach(n=>{sessions[si].push({name:n,g});used[n]++;});
+        Ld[si].filter(n=>T.busy(d,n,si)).forEach(n=>sessions[si].push({name:null,g,conflict:n}));
+        for(let k=Ld[si].length;k<capOf(d,si,g);k++)sessions[si].push({name:null,g});
+        // a session with fewer spots than the moved group keeps the first ones
+        const mine=sessions[si].filter(x=>x.g===g);if(mine.length>capOf(d,si,g)){const drop=new Set(mine.slice(capOf(d,si,g)));sessions[si]=sessions[si].filter(x=>!drop.has(x));}}
+      continue;}
+    for(let si=0;si<3;si++){Ld[si].forEach(n=>{sessions[si].push({name:n,g});used[n]++;});
+      for(let k=Ld[si].length;k<capOf(d,si,g);k++)sessions[si].push({name:null,g,short:true});}
   }
   // 2. Take out anyone marked unavailable
   sessions.forEach((s,si)=>s.forEach((x,k)=>{if(x.name&&(out.has(x.name)||S.offS[d][si].includes(x.name)))s[k]={name:null,g:x.g,replaces:x.name};}));
@@ -524,13 +543,14 @@ function plan(tk,d){
   // Pull-outs each agent already had on earlier days: those who already joined go last
   const prev={};{const i=DAY_ORDER.indexOf(d);DAY_ORDER.slice(0,Math.max(0,i)).forEach(pd=>attendedOn(tk,pd).forEach(n=>prev[n]=(prev[n]||0)+1));}
   const pv=n=>prev[n]||0;
+  const displaced=new Set(sessions.flat().filter(x=>x.conflict&&!out.has(x.conflict)).map(x=>x.conflict));
   // 4. Fill remaining gaps with a free agent from the same team
   const count={};A.forEach(a=>count[a]=0);
   sessions.forEach(s=>s.forEach(x=>{if(x.name)count[x.name]++;}));
   for(let si=0;si<3;si++)for(const slot of sessions[si]){
     if(slot.name||slot.short)continue;
     const taken=new Set(sessions[si].map(x=>x.name).filter(Boolean));
-    const c=A.filter(n=>own(n)===slot.g&&!taken.has(n)&&!offIn(n,si)).sort((a,b)=>pv(a)-pv(b)||rank(count)(a,b));
+    const c=A.filter(n=>own(n)===slot.g&&!taken.has(n)&&!offIn(n,si)).sort((a,b)=>(displaced.has(b)-displaced.has(a))||(count[a]>0)-(count[b]>0)||pv(a)-pv(b)||rank(count)(a,b));
     if(c.length){slot.name=c[0];count[c[0]]++;slot.isRep=true;}
   }
   // 5. Priority: agents who missed an earlier day (off, on leave, removed, or no room) go first on the next day they can attend.
@@ -539,7 +559,7 @@ function plan(tk,d){
   if(carry.size){
     const tot=g=>buildLineup(g).tot;
     [...carry].sort((a,b)=>(tot(own(a))[a]||0)-(tot(own(b))[b]||0)).forEach(X=>{
-      if(out.has(X)||sessions.some(s=>s.some(y=>y.name===X)))return;
+      if(!A.includes(X)||out.has(X)||sessions.some(s=>s.some(y=>y.name===X)))return;
       const g=own(X);let best=null;
       for(let si=0;si<3;si++){
         if(offIn(X,si))continue;
@@ -613,7 +633,7 @@ function render(){
         if(!T.known(day,x.name))notes.push(`<span class="note warn" title="Break and lunch times not on file">Check breaks</span>`);
         return `<div class="row"><span class="nm">${esc(x.name)}${notes.join("")}</span><button class="x" data-off-session="${si}" data-name="${esc(x.name)}" aria-label="Remove ${esc(x.name)} from this session" title="Remove from this session">×</button>${details?`<div class="meta">${T.meta(day,x.name)}</div>`:""}</div>`}).join("")}</div>`;};
     const rm=S.offS[day][si];
-    return `<article class="card"><div class="card-h"><div><div class="t-row"><span class="t">${SESSIONS[si].et} ET</span><button class="cam" data-snap="${si}" aria-label="Copy a picture of this session's names" title="Copy names as a picture"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg></button></div></div>
+    return `<article class="card"><div class="card-h"><div><div class="t-row"><span class="t">${sess(day,si).et} ET</span><button class="cam" data-snap="${si}" aria-label="Copy a picture of this session's names" title="Copy names as a picture"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg></button></div></div>
       <div class="mini" role="group" aria-label="Pull-outs for this session">${["pp","iv"].map(g=>`<span class="mini-s"><span class="mini-l">${g==="pp"?"PP":"GOL"}</span><button data-cap="${g}" data-si="${si}" data-dir="-1" aria-label="Fewer ${GROUPS[g]} in this session">−</button><output>${capOf(day,si,g)}</output><button data-cap="${g}" data-si="${si}" data-dir="1" aria-label="More ${GROUPS[g]} in this session">+</button></span>`).join("")}</div></div>${group("pp")}${group("iv")}
       ${rm.length?`<div class="removed">${rm.map(n=>`<span><s>${esc(n)}</s> <button data-undo-session="${si}" data-name="${esc(n)}" aria-label="Put ${esc(n)} back in this session">Undo</button></span>`).join("")}</div>`:""}</article>`;}).join("");
 }
@@ -628,7 +648,7 @@ document.addEventListener("click",e=>{
     saveCap();render();return;}
   const t=e.target.closest("[data-day]");if(t){day=t.dataset.day;save();render();return;}
   const S=st[team];
-  const o=e.target.closest("[data-off-session]");if(o){const si=+o.dataset.offSession,n=o.dataset.name;if(!S.offS[day][si].includes(n))S.offS[day][si].push(n);save();render();toast(`${n.split(" ")[0]} removed from ${SESSIONS[si].et}`);return;}
+  const o=e.target.closest("[data-off-session]");if(o){const si=+o.dataset.offSession,n=o.dataset.name;if(!S.offS[day][si].includes(n))S.offS[day][si].push(n);save();render();toast(`${n.split(" ")[0]} removed from ${sess(day,si).et}`);return;}
   const u=e.target.closest("[data-undo-session]");if(u){const si=+u.dataset.undoSession,n=u.dataset.name;S.offS[day][si]=S.offS[day][si].filter(x=>x!==n);save();render();toast(`${n.split(" ")[0]} is back`);}
 });
 // Camera: draw the session's names (only) to a picture and copy it
@@ -640,7 +660,7 @@ function snapCanvas(si){
   const sc=2,c=document.createElement("canvas");c.width=W*sc;c.height=H*sc;const x=c.getContext("2d");x.scale(sc,sc);
   x.fillStyle="#ffffff";x.fillRect(0,0,W,H);
   x.fillStyle="#e1f3e7";x.fillRect(0,0,W,P+26+22+6);
-  let y=P+20;x.fillStyle="#18212c";x.font=`700 22px ${F}`;x.fillText(`${SESSIONS[si].et} ET`,P,y);
+  let y=P+20;x.fillStyle="#18212c";x.font=`700 22px ${F}`;x.fillText(`${sess(day,si).et} ET`,P,y);
   y+=24;x.fillStyle="#4d5a6b";x.font=`500 14px ${F}`;x.fillText(`${D.label}, ${D.date}`,P,y);
   y+=20;
   groups.forEach(([label,names])=>{
@@ -657,7 +677,7 @@ async function snap(si){
   let ok=false;
   try{if(window.ClipboardItem&&navigator.clipboard&&navigator.clipboard.write){await navigator.clipboard.write([new ClipboardItem({"image/png":blob})]);ok=true;}}catch(e){ok=false;}
   if(ok){toast("Picture copied. Paste it anywhere.");return;}
-  $("snapImg").src=url;$("snapMsg").textContent=`${DAYS[day].label} · ${SESSIONS[si].et} ET`;$("snapModal").hidden=false;
+  $("snapImg").src=url;$("snapMsg").textContent=`${DAYS[day].label} · ${sess(day,si).et} ET`;$("snapModal").hidden=false;
 }
 document.addEventListener("click",e=>{const b=e.target.closest("[data-snap]");if(b){snap(+b.dataset.snap);return;}
   if(e.target.closest("[data-snap-close]"))$("snapModal").hidden=true;});
@@ -686,7 +706,7 @@ modal.addEventListener("click",e=>{if(e.target.closest("[data-close]"))closeModa
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!modal.hidden)closeModal();});
 $("resetDay").onclick=()=>{st[team].off[day]=[];st[team].offS[day]=[[],[],[]];save();render();toast(`${DAYS[day].label} reset`);};
 $("resetAll").onclick=()=>{st[team]=blank()[team];save();render();toast("All days reset");};
-function scheduleText(){const T=TEAMS.all;return T.days.map(d=>{const {sessions}=plan("all",d);return `${DAYS[d].label}, ${DAYS[d].date}\n`+sessions.map((s,si)=>`${SESSIONS[si].et} ET (${SESSIONS[si].ph} PH)\n  Puritan's Pride: `+(s.filter(x=>x.g==="pp").map(x=>x.name||"OPEN").join(", ")||"none")+`\n  GOL: `+(s.filter(x=>x.g==="iv").map(x=>x.name||"OPEN").join(", ")||"none")).join("\n")}).join("\n\n");}
+function scheduleText(){const T=TEAMS.all;return T.days.map(d=>{const {sessions}=plan("all",d);return `${DAYS[d].label}, ${DAYS[d].date}\n`+sessions.map((s,si)=>`${sess(d,si).et} ET (${sess(d,si).ph} PH)\n  Puritan's Pride: `+(s.filter(x=>x.g==="pp").map(x=>x.name||"OPEN").join(", ")||"none")+`\n  GOL: `+(s.filter(x=>x.g==="iv").map(x=>x.name||"OPEN").join(", ")||"none")).join("\n")}).join("\n\n");}
 $("copyBtn").onclick=async()=>{const txt=scheduleText();
   try{await navigator.clipboard.writeText(txt);toast("Schedule copied");}
   catch(err){const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast("Schedule copied");}catch(e2){toast("Copy blocked. Select the text manually.");}ta.remove();}};
